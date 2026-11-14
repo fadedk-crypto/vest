@@ -1,0 +1,1460 @@
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+
+local function applyGunMods(tool)
+    if not tool then return end
+
+    local misc = shared.vest["Misc"]
+    if not misc then return end
+
+    local spreadConfig = misc["Spread Modifications"]
+
+    if not spreadConfig or not spreadConfig["Enabled"] then
+        return
+    end
+
+    local weaponConfig = spreadConfig[tool.Name]
+    if not weaponConfig then return end
+
+    local normal = weaponConfig["Normal"]
+    if not normal or not normal[1] then return end
+
+    local minSpread = normal[1][1]
+    local maxSpread = normal[1][2]
+
+    local spreadValue = tool:FindFirstChild("Spread")
+
+    if spreadValue and spreadValue:IsA("NumberValue") then
+        spreadValue.Value = math.random(
+            math.min(minSpread, maxSpread),
+            math.max(minSpread, maxSpread)
+        )
+    end
+end
+
+local WALL_DISTANCE = 3.5
+local CLIMB_SPEED = 48
+local WALL_PUSH = 2
+local JUMP_DEBOUNCE = 0.12
+
+local lastJump = 0
+
+local function getWall(character, root)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {character}
+
+    local directions = {
+        root.CFrame.LookVector,
+        -root.CFrame.LookVector,
+        root.CFrame.RightVector,
+        -root.CFrame.RightVector
+    }
+
+    for _, direction in ipairs(directions) do
+        local result = Workspace:Raycast(
+            root.Position,
+            direction * WALL_DISTANCE,
+            params
+        )
+
+        if result and math.abs(result.Normal.Y) < 0.3 then
+            return result
+        end
+    end
+
+    return nil
+end
+
+local function wallJump()
+    local movement = shared.vest["Misc"]
+
+    if not movement["Wall Jump"]["Enabled"] then return end
+    if not movement["No Jump Cooldown"]["Enabled"] then return end
+
+    if os.clock() - lastJump < JUMP_DEBOUNCE then return end
+
+    local character = LocalPlayer.Character
+    if not character then return end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local root = character:FindFirstChild("HumanoidRootPart")
+
+    if not humanoid or not root then return end
+    if humanoid.FloorMaterial ~= Enum.Material.Air then return end
+
+    local wall = getWall(character, root)
+    if not wall then return end
+
+    lastJump = os.clock()
+
+    local velocity = root.AssemblyLinearVelocity
+
+    root.AssemblyLinearVelocity = Vector3.new(
+        velocity.X - wall.Normal.X * WALL_PUSH,
+        CLIMB_SPEED,
+        velocity.Z - wall.Normal.Z * WALL_PUSH
+    )
+
+    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+end
+
+UserInputService.JumpRequest:Connect(wallJump)
+
+local function setupNoJumpCooldown(character)
+    local humanoid = character:WaitForChild("Humanoid")
+
+    local movement = shared.vest["Misc"]
+    local config = movement["No Jump Cooldown"]
+
+    if not config["Enabled"] then return end
+
+    humanoid:GetAttributeChangedSignal("_LastJumpPower"):Connect(function()
+        if not config["Enabled"] then return end
+
+        local lastPower = humanoid:GetAttribute("_LastJumpPower")
+
+        if humanoid.JumpPower == 0 and lastPower then
+            humanoid.JumpPower = lastPower
+        end
+    end)
+
+    humanoid:GetPropertyChangedSignal("JumpPower"):Connect(function()
+        if not config["Enabled"] then return end
+
+        if humanoid.JumpPower > 0 then
+            humanoid:SetAttribute("_LastJumpPower", humanoid.JumpPower)
+
+        elseif humanoid.JumpPower == 0 then
+            humanoid.JumpPower =
+                humanoid:GetAttribute("_LastJumpPower") or 50
+        end
+    end)
+end
+
+if LocalPlayer.Character then
+    task.spawn(setupNoJumpCooldown, LocalPlayer.Character)
+end
+
+LocalPlayer.CharacterAdded:Connect(function(character)
+    task.spawn(setupNoJumpCooldown, character)
+end)
+
+local knifeskins = {
+    ["Golden Age Tanto"] = { soundid = "rbxassetid://5917819099", animationid = "rbxassetid://13473404819", positionoffset = Vector3.new(0, -0.20, -1.2), rotationoffset = Vector3.new(90, 263.7, 180) },
+    ["GPO-Knife"] = { soundid = "rbxassetid://4604390759", animationid = "rbxassetid://14014278925", positionoffset = Vector3.new(0.00, -0.32, -1.07), rotationoffset = Vector3.new(90, -97.4, 90) },
+    ["GPO-Knife Prestige"] = { soundid = "rbxassetid://4604390759", animationid = "rbxassetid://14014278925", positionoffset = Vector3.new(0.00, -0.32, -1.07), rotationoffset = Vector3.new(90, -97.4, 90) },
+    ["Heaven"] = { soundid = "rbxassetid://14489860007", animationid = "rbxassetid://14500266726", positionoffset = Vector3.new(-0.02, -0.82, 0.20), rotationoffset = Vector3.new(64.42, 3.79, 0.00) },
+    ["Love Kukri"] = { soundid = "", animationid = "", positionoffset = Vector3.new(-0.14, 0.14, -1.62), rotationoffset = Vector3.new(-90.00, 180.00, -4.97), particle = true, textureid = "rbxassetid://12124159284" },
+    ["Purple Dagger"] = { soundid = "rbxassetid://17822743153", animationid = "rbxassetid://17824999722", positionoffset = Vector3.new(-0.13, -0.24, -1.80), rotationoffset = Vector3.new(89.05, 96.63, 180.00) },
+    ["Blue Dagger"] = { soundid = "rbxassetid://17822737046", animationid = "rbxassetid://17824995184", positionoffset = Vector3.new(-0.13, -0.24, -1.80), rotationoffset = Vector3.new(89.05, 96.63, 180.00) },
+    ["Green Dagger"] = { soundid = "rbxassetid://17822741762", animationid = "rbxassetid://17825004320", positionoffset = Vector3.new(-0.13, -0.24, -1.07), rotationoffset = Vector3.new(89.05, 96.63, 180.00) },
+    ["Red Dagger"] = { soundid = "rbxassetid://17822952417", animationid = "rbxassetid://17825008844", positionoffset = Vector3.new(-0.13, -0.24, -1.07), rotationoffset = Vector3.new(89.05, 96.63, 180.00) },
+    ["Portal"] = { soundid = "rbxassetid://16058846352", animationid = "rbxassetid://16058633881", positionoffset = Vector3.new(-0.13, -0.35, -0.57), rotationoffset = Vector3.new(89.05, 96.63, 180.00) },
+    ["Emerald Butterfly"] = { soundid = "rbxassetid://14931902491", animationid = "rbxassetid://14918231706", positionoffset = Vector3.new(-0.02, -0.30, -0.65), rotationoffset = Vector3.new(180.00, 90.95, 180.00) },
+    ["Boy"] = { soundid = "rbxassetid://18765078331", animationid = "rbxassetid://18789158908", positionoffset = Vector3.new(-0.02, -0.09, -0.73), rotationoffset = Vector3.new(89.05, -88.11, 180.00) },
+    ["Girl"] = { soundid = "rbxassetid://18765078331", animationid = "rbxassetid://18789162944", positionoffset = Vector3.new(-0.02, -0.16, -0.73), rotationoffset = Vector3.new(89.05, -88.11, 180.00) },
+    ["Dragon"] = { soundid = "rbxassetid://14217789230", animationid = "rbxassetid://14217804400", positionoffset = Vector3.new(-0.02, -0.32, -0.98), rotationoffset = Vector3.new(89.05, 90.95, 180.00) },
+    ["Void"] = { soundid = "rbxassetid://14756591763", animationid = "rbxassetid://14774699952", positionoffset = Vector3.new(-0.02, -0.22, -0.85), rotationoffset = Vector3.new(180.00, 90.95, 180.00) },
+    ["Wild West"] = { soundid = "rbxassetid://16058689026", animationid = "rbxassetid://16058148839", positionoffset = Vector3.new(-0.02, -0.24, -1.15), rotationoffset = Vector3.new(-91.89, 90.95, 180.00) },
+    ["Iced Out"] = { soundid = "rbxassetid://14924261405", animationid = "rbxassetid://18465353361", positionoffset = Vector3.new(0.02, -0.08, 0.99), rotationoffset = Vector3.new(180.00, -90.95, -180.00) },
+    ["Reptile"] = { soundid = "rbxassetid://18765103349", animationid = "rbxassetid://18788955930", positionoffset = Vector3.new(-0.03, -0.06, -0.92), rotationoffset = Vector3.new(168.63, 90.00, -180.00) },
+    ["Emerald"] = { soundid = "", animationid = "", positionoffset = Vector3.new(-0.03, -0.06, -0.92), rotationoffset = Vector3.new(168.63, 90.00, 108.00) },
+    ["Ribbon"] = { soundid = "rbxassetid://130974579277249", animationid = "rbxassetid://124102609796063", positionoffset = Vector3.new(0.02, -0.25, -0.05), rotationoffset = Vector3.new(90.00, 0.00, 180.00) },
+}
+
+local knifedata = {}
+local toolregistry = {}
+
+local function skinCfg()
+    return shared.vest and shared.vest["Misc"] and shared.vest["Misc"]["Skin Changer"]
+end
+
+local function skinEnabled()
+    local cfg = skinCfg()
+    return cfg and cfg["Enabled"] == true
+end
+
+local function skinFor(toolName)
+    local cfg = skinCfg()
+    return cfg and cfg["weapons"] and cfg["weapons"][toolName]
+end
+
+local function clearmesh(tool, exclude)
+    for _, v in ipairs(tool:GetChildren()) do
+        if v:IsA("MeshPart") and v ~= exclude then v:Destroy() end
+    end
+end
+
+local function applygun(tool, name)
+    if not tool or not tool:IsA("Tool") then return end
+
+    local orig = tool:FindFirstChildOfClass("MeshPart")
+    if not orig then return end
+
+    local skinmodules = ReplicatedStorage:FindFirstChild("SkinModules")
+    if not skinmodules then return end
+
+    local success, modules = pcall(require, skinmodules)
+    if not success or type(modules) ~= "table" then return end
+
+    local weaponData = modules[tool.Name]
+    local info = weaponData and weaponData[name]
+    if not info then return end
+
+    local skinpart = info.TextureID
+    if skinpart == nil then return end
+
+    clearmesh(tool, orig)
+
+    if typeof(skinpart) == "Instance" then
+        local clone = skinpart:Clone()
+        clone.Name = "CurrentSkin"
+        clone.Parent = tool
+        clone.CFrame = orig.CFrame
+
+        local weld = Instance.new("Weld")
+        weld.Part0 = clone
+        weld.Part1 = orig
+        if info.CFrame then
+            weld.C0 = info.CFrame:Inverse()
+        end
+        weld.Parent = clone
+        orig.Transparency = 1
+    elseif typeof(skinpart) == "string" then
+        orig.TextureID = skinpart
+        orig.Transparency = 0
+    else
+        return
+    end
+
+    local handle = tool:FindFirstChild("Handle")
+    if handle then
+        local shoot = handle:FindFirstChild("ShootSound")
+        local skinassets = ReplicatedStorage:FindFirstChild("SkinAssets")
+
+        if shoot and skinassets then
+            local gunsounds = skinassets:FindFirstChild("GunShootSounds")
+            local sounds = gunsounds and gunsounds:FindFirstChild(tool.Name)
+            local soundObject = sounds and sounds:FindFirstChild(name)
+            if soundObject and soundObject:IsA("StringValue") then
+                shoot.SoundId = soundObject.Value
+            end
+        end
+
+        local particlefolder = skinassets and skinassets:FindFirstChild("GunHandleParticle")
+        local particlesource = particlefolder and particlefolder:FindFirstChild(name)
+        if particlesource then
+            local emitter = particlesource:FindFirstChildOfClass("ParticleEmitter")
+            if not emitter then
+                for _, descendant in ipairs(particlesource:GetDescendants()) do
+                    if descendant:IsA("ParticleEmitter") then
+                        emitter = descendant
+                        break
+                    end
+                end
+            end
+
+            if emitter then
+                for _, existing in ipairs(handle:GetChildren()) do
+                    if existing:IsA("ParticleEmitter") then
+                        existing:Destroy()
+                    end
+                end
+                local emitterClone = emitter:Clone()
+                emitterClone.Parent = handle
+                emitterClone.Enabled = true
+            end
+        end
+
+        handle:SetAttribute("SkinName", name)
+    end
+end
+
+local function cleanknife(tool)
+    local data = knifedata[tool]
+    if not data then return end
+    if data.track then
+        data.track:Stop()
+        data.track:Destroy()
+        data.track = nil
+    end
+    if data.welds then
+        for _, w in ipairs(data.welds) do if w then w:Destroy() end end
+    end
+    if data.sounds then
+        for _, s in ipairs(data.sounds) do if s and s.Parent then s:Destroy() end end
+    end
+    local mesh = tool:FindFirstChild("Default")
+    if mesh then
+        for _, v in ipairs(mesh:GetChildren()) do
+            if v.Name == "Handle.R" or v:IsA("Model") or (v:IsA("BasePart") and v.Name ~= "Default") then
+                v:Destroy()
+            end
+        end
+        mesh.Transparency = 0
+    end
+    knifedata[tool] = nil
+end
+
+local function applyknife(char, tool, skin)
+    local skincfg = knifeskins[skin]
+    if not skincfg then return end
+    local hum = char:FindFirstChild("Humanoid")
+    local rhand = char:FindFirstChild("RightHand")
+    if not hum or not rhand then return end
+    cleanknife(tool)
+    knifedata[tool] = {track = nil, welds = {}, sounds = {}}
+    local data = knifedata[tool]
+    local mesh = tool:FindFirstChild("Default")
+    if not mesh then return end
+    mesh.Transparency = 1
+    local skinmodules = ReplicatedStorage:FindFirstChild("SkinModules")
+    if not skinmodules then return end
+    local knives = skinmodules:FindFirstChild("Knives")
+    if not knives then return end
+    local skinmodel = knives:FindFirstChild(skin)
+    if not skinmodel then return end
+    local clone = skinmodel:Clone()
+    clone.Name = skin
+    local handr = Instance.new("Part")
+    handr.Name = "Handle.R"
+    handr.Transparency = 1
+    handr.CanCollide = false
+    handr.Anchored = false
+    handr.Size = Vector3.new(0.001, 0.001, 0.001)
+    handr.Massless = true
+    handr.Parent = mesh
+    local m6d = Instance.new("Motor6D")
+    m6d.Name = "Handle.R"
+    m6d.Part0 = rhand
+    m6d.Part1 = handr
+    m6d.Parent = handr
+    local offset = CFrame.new(skincfg.positionoffset) * CFrame.Angles(math.rad(skincfg.rotationoffset.X), math.rad(skincfg.rotationoffset.Y), math.rad(skincfg.rotationoffset.Z))
+    if clone:IsA("Model") then
+        if not clone.PrimaryPart then
+            for _, c in ipairs(clone:GetChildren()) do
+                if c:IsA("BasePart") then clone.PrimaryPart = c break end
+            end
+        end
+        if clone.PrimaryPart then
+            for _, p in ipairs(clone:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    p.CanCollide = false
+                    p.Massless = true
+                    p.Anchored = false
+                    local w = Instance.new("Weld")
+                    w.Part0 = handr
+                    w.Part1 = p
+                    w.C0 = offset
+                    w.C1 = p.CFrame:ToObjectSpace(clone.PrimaryPart.CFrame)
+                    w.Parent = p
+                    table.insert(data.welds, w)
+                end
+            end
+        end
+        clone.Parent = mesh
+    elseif clone:IsA("BasePart") then
+        clone.CanCollide = false
+        clone.Massless = true
+        clone.Anchored = false
+        if clone:IsA("MeshPart") and skincfg.textureid then clone.TextureID = skincfg.textureid end
+        if skincfg.particle then
+            local skinassets = ReplicatedStorage:FindFirstChild("SkinAssets")
+            if skinassets then
+                local pf = skinassets:FindFirstChild("GunHandleParticle")
+                if pf then
+                    local ps = pf:FindFirstChild(skin)
+                    if ps then
+                        local pe = ps:FindFirstChild("ParticleEmitter")
+                        if pe then pe:Clone().Parent = clone end
+                    end
+                end
+            end
+        end
+        clone.Parent = mesh
+        local w = Instance.new("Weld")
+        w.Part0 = handr
+        w.Part1 = clone
+        w.C0 = offset
+        w.Parent = clone
+        table.insert(data.welds, w)
+    end
+    local animator = hum:FindFirstChildOfClass("Animator") or Instance.new("Animator", hum)
+    if skincfg.animationid and skincfg.animationid ~= "" then
+        local anim = Instance.new("Animation")
+        anim.AnimationId = skincfg.animationid
+        local track = animator:LoadAnimation(anim)
+        track.Looped = false
+        track:Play()
+        data.track = track
+        anim:Destroy()
+        track.Ended:Once(function()
+            if data.track == track then data.track = nil end
+            track:Destroy()
+        end)
+    end
+    if skincfg.soundid and skincfg.soundid ~= "" then
+        local snd = Instance.new("Sound")
+        snd.SoundId = skincfg.soundid
+        snd.Parent = workspace
+        snd:Play()
+        table.insert(data.sounds, snd)
+        snd.Ended:Connect(function() snd:Destroy() end)
+    end
+    tool:SetAttribute("CurrentKnifeSkin", skin)
+end
+
+local function setuptool(tool)
+    if not tool:IsA("Tool") then return end
+    if toolregistry[tool] then return end
+    toolregistry[tool] = true
+    tool.Equipped:Connect(function()
+        if not skinEnabled() then return end
+        local char = tool.Parent
+        if char ~= LocalPlayer.Character then return end
+        local skin = skinFor(tool.Name)
+        if not skin or skin == "" then return end
+        if tool.Name == "[Knife]" then
+            applyknife(char, tool, skin)
+        else
+            applygun(tool, skin)
+        end
+    end)
+    tool.Unequipped:Connect(function()
+        if tool.Name == "[Knife]" then
+            local data = knifedata[tool]
+            if not data then return end
+            if data.welds then for _, w in ipairs(data.welds) do if w then w:Destroy() end end end
+            if data.sounds then for _, s in ipairs(data.sounds) do if s and s.Parent then s:Destroy() end end end
+            local mesh = tool:FindFirstChild("Default")
+            if mesh then
+                for _, v in ipairs(mesh:GetChildren()) do
+                    if v.Name == "Handle.R" or v:IsA("Model") or (v:IsA("MeshPart") and v.Name ~= "Default") then v:Destroy() end
+                end
+                mesh.Transparency = 0
+            end
+        end
+    end)
+    if tool.Parent == LocalPlayer.Character and skinEnabled() then
+        local skin = skinFor(tool.Name)
+        if skin and skin ~= "" then
+            if tool.Name == "[Knife]" then
+                task.spawn(applyknife, LocalPlayer.Character, tool, skin)
+            else
+                task.spawn(applygun, tool, skin)
+            end
+        end
+    end
+end
+
+local function watchchar(char)
+    if not char then return end
+    for _, v in ipairs(char:GetChildren()) do
+        if v:IsA("Tool") then setuptool(v) end
+    end
+    char.ChildAdded:Connect(function(v)
+        if v:IsA("Tool") then setuptool(v) end
+    end)
+end
+
+if LocalPlayer.Character then watchchar(LocalPlayer.Character) end
+LocalPlayer.CharacterAdded:Connect(watchchar)
+
+for _, tool in ipairs(LocalPlayer.Backpack:GetChildren()) do
+    if tool:IsA("Tool") then setuptool(tool) end
+end
+
+LocalPlayer.Backpack.ChildAdded:Connect(function(v)
+    if v:IsA("Tool") then setuptool(v) end
+end)
+
+local vest = (function()
+
+    return function(options)
+        options = options or {}
+        local Players   = game:GetService("Players")
+        local Input     = game:GetService("UserInputService")
+        local Workspace = game:GetService("Workspace")
+        local player    = Players.LocalPlayer
+        assert(player, "vest generic aim adapter requires LocalPlayer")
+        assert(type(getloadedmodules) == "function", "Loaded-module inspection unavailable")
+
+        local CFG      = shared.vest or {}
+        local SA       = CFG["Silent Aim"] or {}
+        local CHECKS   = CFG.Checks or {}
+        local TARGET   = CFG.Targeting or {}
+        local HITLOC   = SA["Hit Location"] or {}
+        local CLOSEST  = HITLOC["ClosestPoint"] or {}
+        local PRED     = SA.Prediction or {}
+        local FOVCFG   = SA.FOV or {}
+        local FOVSIZE  = FOVCFG.Size or {}
+
+        local function pick(a, b, fallback)
+            if a ~= nil then return a end
+            if b ~= nil then return b end
+            return fallback
+        end
+
+        local function resolveKey(raw)
+            if typeof(raw) == "EnumItem" then return raw end
+            if type(raw) == "string" then
+                local ok, code = pcall(function() return Enum.KeyCode[raw] end)
+                if ok and code then return code end
+            end
+            return Enum.UserInputType.MouseButton2
+        end
+
+        local settings = {
+            Enabled        = pick(SA.Enabled, options.Enabled, true) ~= false,
+            Method         = pick(SA.Method, options.Method, "Always"),
+            HoldKey        = pick(CFG.Keybinds and CFG.Keybinds["Silent Aim"], options.HoldKey, "C"),
+
+            Hitchance      = math.clamp(tonumber(pick(SA.Hitchance, options.Hitchance, 100)) or 100, 0, 100),
+
+            AimPart        = pick(HITLOC.Part, options.AimPart, "ClosestPart"),
+            ClosestPoint   = pick(CLOSEST.Enabled, options.ClosestPoint, false) == true,
+            ClosestMode    = pick(CLOSEST.Mode, options.ClosestMode, "Regular"),
+            ClosestScale   = math.max(tonumber(pick(CLOSEST.Scale, options.ClosestScale, 1.25)) or 1.25, 1),
+
+            Prediction     = pick(PRED.Enabled, options.Prediction, false) == true,
+            PredictionVal  = PRED.Values or options.PredictionValues or { 0, 0, 0 },
+
+            FOVEnabled     = pick(FOVCFG.Enabled, options.FOVEnabled, true) ~= false,
+            FOVX           = tonumber(FOVSIZE.X or options.FOVX) or 3,
+            FOVY           = tonumber(FOVSIZE.Y or options.FOVY) or 3,
+            FOVUnit        = pick(options.FOVUnit, nil, "Percent"),   -- "Percent" | "Pixels"
+            FOVScale       = tonumber(options.FOVScale) or 1,
+
+            MaxDistance    = tonumber(pick(options.MaxDistance, nil, 5000)) or 5000,
+            ScanInterval   = math.max(tonumber(options.ScanInterval) or 0, 0),
+
+            TeamCheck      = pick(options.TeamCheck, nil, false) == true,
+            WallCheck      = pick(CHECKS.WallCheck, options.WallCheck, true) == true,
+            Visible        = pick(CHECKS.Visible, options.Visible, true) == true,
+            Knocked        = pick(CHECKS.Knocked, options.Knocked, true) == true,
+            ForceField     = pick(CHECKS.ForceField, options.ForceField, false) == true,
+            SelfKnocked    = pick(CHECKS.SelfKnocked, options.SelfKnocked, false) == true,
+            OffScreen      = pick(TARGET["Off Screen Targeting"], options.OffScreen, false) == true,
+        }
+        local holdKey = resolveKey(settings.HoldKey)
+
+        local destroyed, held, toggled = false, false, false
+        local lastScan, lastRoll, rollPass = -math.huge, -math.huge, true
+        local cachedTarget
+        local leases, connections = {}, {}
+        local calls, redirects, lastShape, lastError = 0, 0, "waiting for native getAim", nil
+
+        local function connect(signal, callback)
+            connections[#connections + 1] = signal:Connect(callback)
+        end
+
+        local function cursor(camera)
+            if Input.MouseBehavior == Enum.MouseBehavior.LockCenter then
+                return camera.ViewportSize * 0.5
+            end
+            return Input:GetMouseLocation()
+        end
+
+        local function knocked(character)
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if not humanoid or humanoid.Health <= 0 then return true end
+            if humanoid.PlatformStand then return true end
+            if character:GetAttribute("Knocked") == true then return true end
+            return character:FindFirstChild("Knocked") ~= nil
+        end
+
+        local function reloading(character)
+            local tool = character:FindFirstChildOfClass("Tool")
+            if not tool then return false end
+            if tool:GetAttribute("Reloading") == true then return true end
+            if character:GetAttribute("Reloading") == true then return true end
+            local flag = tool:FindFirstChild("Reloading")
+            return (flag and flag:IsA("BoolValue") and flag.Value) or false
+        end
+
+        local function isLimb(part)
+            return part:IsA("BasePart")
+                and not part:GetAttribute("vest_hb")
+                and not part:FindFirstAncestorOfClass("Tool")
+                and not part:FindFirstAncestorOfClass("Accessory")
+        end
+
+        local function visible(camera, point, character)
+            if not settings.WallCheck then return true end
+            local own = player.Character
+            local params = RaycastParams.new()
+            params.FilterType = Enum.RaycastFilterType.Exclude
+            params.FilterDescendantsInstances = own and { own } or {}
+            params.IgnoreWater = true
+            local origin = camera.CFrame.Position
+            local hit = Workspace:Raycast(origin, point - origin, params)
+            return hit == nil or hit.Instance:IsDescendantOf(character)
+        end
+
+        -- closest point on a part's box (optionally scaled) to a ray, in world space
+        local function closestOnBox(part, scale, origin, direction)
+            local cf = part.CFrame
+            local half = (part.Size * scale) * 0.5
+            local inv = cf:Inverse()
+            local localOrigin = inv * origin
+            local localDir = (inv * (origin + direction)) - localOrigin
+
+            local center = Vector3.zero
+            local denom = localDir:Dot(localDir)
+            local t = 0
+            if denom > 1e-6 then
+                t = math.max((center - localOrigin):Dot(localDir) / denom, 0)
+            end
+            local onRay = localOrigin + localDir * t
+            local clamped = Vector3.new(
+                math.clamp(onRay.X, -half.X, half.X),
+                math.clamp(onRay.Y, -half.Y, half.Y),
+                math.clamp(onRay.Z, -half.Z, half.Z)
+            )
+            return cf * clamped
+        end
+
+        local function rayDistance(point, origin, direction)
+            local rel = point - origin
+            local t = math.max(rel:Dot(direction), 0)
+            return (rel - direction * t).Magnitude
+        end
+
+        local function fovUnit(camera)
+            if settings.FOVUnit == "Pixels" then return settings.FOVScale end
+            return (math.min(camera.ViewportSize.X, camera.ViewportSize.Y) / 100) * settings.FOVScale
+        end
+
+        local function inFOV(screen, mouse, camera)
+            if not settings.FOVEnabled then return true end
+            local unit = fovUnit(camera)
+            return math.abs(screen.X - mouse.X) <= settings.FOVX * unit
+                and math.abs(screen.Y - mouse.Y) <= settings.FOVY * unit
+        end
+
+        local function aimFor(character, root, origin, direction)
+            local point, chosen, best
+
+            local function consider(part)
+                if not part or not part:IsA("BasePart") then return end
+                local scale = (settings.ClosestPoint and settings.ClosestMode == "Scaled")
+                    and settings.ClosestScale or 1
+                local candidate = settings.ClosestPoint
+                    and closestOnBox(part, scale, origin, direction)
+                    or part.Position
+                local score = rayDistance(candidate, origin, direction)
+                if not best or score < best then
+                    best, chosen, point = score, part, candidate
+                end
+            end
+
+            if settings.AimPart == "Head" then
+                consider(character:FindFirstChild("Head"))
+            elseif settings.AimPart == "HumanoidRootPart" then
+                consider(character:FindFirstChild("HumanoidRootPart"))
+            else
+                for _, part in ipairs(character:GetDescendants()) do
+                    if isLimb(part) then consider(part) end
+                end
+            end
+
+            if not point then return nil end
+
+            if settings.Prediction then
+                local values = settings.PredictionVal
+                local velocity = root.AssemblyLinearVelocity
+                if velocity and velocity.Magnitude < 500 then
+                    point = point + velocity * Vector3.new(
+                        tonumber(values[1]) or 0,
+                        tonumber(values[2]) or 0,
+                        tonumber(values[3]) or 0
+                    )
+                end
+            end
+
+            return chosen, point, best
+        end
+
+        local function stillValid(target)
+            local character = target.character
+            if not character or not character.Parent then return false end
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if not humanoid or humanoid.Health <= 0 then return false end
+            if not target.part or not target.part.Parent then return false end
+            return true
+        end
+
+        local function choose()
+            local now = os.clock()
+            if cachedTarget and now - lastScan < settings.ScanInterval then
+                if stillValid(cachedTarget) then return cachedTarget end
+                cachedTarget = nil
+            end
+            lastScan, cachedTarget = now, nil
+
+            local camera = Workspace.CurrentCamera
+            if not camera then return nil end
+
+            local own = player.Character
+            if settings.SelfKnocked and own and knocked(own) then return nil end
+
+            local tool = own and own:FindFirstChildOfClass("Tool")
+            if tool and reloading(own) then return nil end
+
+            local origin = camera.CFrame.Position
+            local mouse = cursor(camera)
+            local ray = camera:ViewportPointToRay(mouse.X, mouse.Y)
+
+            local bestTarget, bestScore
+
+            for _, other in ipairs(Players:GetPlayers()) do
+                if other ~= player then
+                    local character = other.Character
+                    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+                    if character and humanoid and humanoid.Health > 0 then
+                        local allowed = true
+                        if settings.TeamCheck and player.Team and other.Team == player.Team then allowed = false end
+                        if allowed and settings.Knocked and knocked(character) then allowed = false end
+                        if allowed and settings.ForceField and character:FindFirstChildOfClass("ForceField") then allowed = false end
+                        local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
+                        if allowed and root and (root.Position - origin).Magnitude <= settings.MaxDistance then
+                            local part, point, score = aimFor(character, root, ray.Origin, ray.Direction)
+                            if part then
+                                local screen, onScreen = camera:WorldToViewportPoint(point)
+                                local screenOK = settings.OffScreen or not settings.Visible or onScreen
+                                if screen.Z > 0 and screenOK and inFOV(screen, mouse, camera)
+                                    and (not bestScore or score < bestScore)
+                                    and visible(camera, point, character)
+                                then
+                                    bestScore = score
+                                    bestTarget = { player = other, character = character, part = part, point = point }
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            if not bestTarget then return nil end
+
+            if now - lastRoll >= 0.05 then
+                lastRoll = now
+                rollPass = settings.Hitchance >= 100
+                    or (settings.Hitchance > 0 and math.random() * 100 <= settings.Hitchance)
+            end
+            if not rollPass then return nil end
+
+            cachedTarget = bestTarget
+            return cachedTarget
+        end
+
+        local function redirected(value, target, camera, arguments)
+            local kind = typeof(value)
+            lastShape = kind
+            if kind == "Vector3" then
+                local origin = arguments and arguments[1]
+                if typeof(origin) == "Vector3" and value.Magnitude <= 2 then
+                    local direction = target.point - origin
+                    if direction.Magnitude > 0 then
+                        lastShape = "Vector3 direction"
+                        return direction.Unit * math.max(value.Magnitude, 1), true
+                    end
+                end
+                lastShape = "Vector3 world point"
+                return target.point, true
+            end
+            if kind == "Vector2" then
+                local point = camera:WorldToViewportPoint(target.point)
+                return Vector2.new(point.X, point.Y), true
+            end
+            if kind == "CFrame" then
+                return CFrame.lookAt(value.Position, target.point), true
+            end
+            if kind == "Ray" then
+                local length = value.Direction.Magnitude
+                local direction = target.point - value.Origin
+                if direction.Magnitude <= 0 then return value, false end
+                return Ray.new(value.Origin, direction.Unit * math.max(length, direction.Magnitude)), true
+            end
+            return value, false
+        end
+
+        local function active()
+            if destroyed or not settings.Enabled then return false end
+            if settings.Method == "Always" then return true end
+            if settings.Method == "Toggle" then return toggled end
+            return held
+        end
+
+        local function install(exported, key, path)
+            local original = rawget(exported, key)
+            if type(original) ~= "function" then return false end
+            local wrapper
+            wrapper = function(...)
+                local arguments = table.pack(...)
+                local packed = table.pack(original(table.unpack(arguments, 1, arguments.n)))
+                calls += 1
+                local camera = Workspace.CurrentCamera
+                local target = active() and camera and choose() or nil
+                if target then
+                    for index = 1, packed.n do
+                        local replacement, changed = redirected(packed[index], target, camera, arguments)
+                        if changed then
+                            packed[index] = replacement
+                            redirects += 1
+                            break
+                        end
+                    end
+                end
+                return table.unpack(packed, 1, packed.n)
+            end
+            local ok, err = pcall(function() rawset(exported, key, wrapper) end)
+            if not ok or rawget(exported, key) ~= wrapper then
+                lastError = path .. "." .. tostring(key) .. ": " .. tostring(err or "not writable")
+                return false
+            end
+            leases[#leases + 1] = { owner = exported, key = key, original = original, wrapper = wrapper, path = path }
+            return true
+        end
+
+        local function modulePath(module)
+            local ok, path = pcall(function() return module:GetFullName() end)
+            return ok and path or tostring(module.Name)
+        end
+
+        for _, module in ipairs(getloadedmodules()) do
+            local name = string.lower(tostring(module.Name))
+            if name:find("gun", 1, true) or name:find("weapon", 1, true) or name:find("aim", 1, true) then
+                local ok, exported = pcall(require, module)
+                if ok and type(exported) == "table" then
+                    for key, value in pairs(exported) do
+                        local normalized = type(key) == "string" and string.lower(key) or ""
+                        if type(value) == "function" and (normalized == "getaim" or normalized == "getaimposition"
+                            or normalized == "getaimpoint" or normalized == "aim") then
+                            install(exported, key, modulePath(module))
+                        end
+                    end
+                end
+            end
+        end
+        assert(#leases > 0, "No writable getAim-like export was found in already-loaded gun modules")
+
+        local function matches(input)
+            return input.KeyCode == holdKey or input.UserInputType == holdKey
+        end
+
+        connect(Input.InputBegan, function(input, processed)
+            if not matches(input) then return end
+            if settings.Method == "Toggle" then
+                if not processed then toggled = not toggled; cachedTarget = nil end
+            elseif not processed then
+                held = true
+            end
+        end)
+        connect(Input.InputEnded, function(input)
+            if not matches(input) then return end
+            held = false
+            cachedTarget = nil
+        end)
+        connect(Input.WindowFocusReleased, function() held = false; cachedTarget = nil end)
+
+        local api = {}
+        function api:Set(name, value)
+            assert(settings[name] ~= nil, "Unknown setting " .. tostring(name))
+            settings[name] = value
+            if name == "HoldKey" then holdKey = resolveKey(value) end
+            if name == "Hitchance" then settings.Hitchance = math.clamp(tonumber(value) or 100, 0, 100) end
+            cachedTarget = nil
+        end
+        function api:Status()
+            local paths = {}
+            for _, lease in ipairs(leases) do paths[#paths + 1] = lease.path .. "." .. tostring(lease.key) end
+            return {
+                Active = not destroyed and settings.Enabled,
+                Method = settings.Method,
+                Hitchance = settings.Hitchance,
+                FOV = settings.FOVEnabled and (settings.FOVX .. "/" .. settings.FOVY) or "off",
+                AimPart = settings.AimPart,
+                ClosestPoint = settings.ClosestPoint and (settings.ClosestMode .. " x" .. settings.ClosestScale) or false,
+                Prediction = settings.Prediction,
+                Calls = calls, Redirects = redirects,
+                ReturnShape = lastShape, Hooks = paths,
+                Target = cachedTarget and cachedTarget.player.Name or nil,
+                Point = cachedTarget and tostring(cachedTarget.point) or nil,
+                Error = lastError,
+            }
+        end
+        function api:Destroy()
+            if destroyed then return end
+            destroyed = true
+            for _, connection in ipairs(connections) do connection:Disconnect() end
+            for _, lease in ipairs(leases) do
+                pcall(function()
+                    if rawget(lease.owner, lease.key) == lease.wrapper then rawset(lease.owner, lease.key, lease.original) end
+                end)
+            end
+            table.clear(leases)
+            cachedTarget = nil
+        end
+        return api
+    end
+
+end)()
+
+local okAim, aimApi = pcall(vest, {
+    Enabled = true,
+    MaxDistance = 5000,
+    ScanInterval = 0,
+    FOVUnit = "Percent",
+})
+
+if not okAim then
+    warn("[vest] silent aim adapter failed: " .. tostring(aimApi))
+end
+
+local LOCAL = {
+	Type = "FOV",
+	CheckDefaults = {
+		Knocked     = true,
+		Reloading   = true,
+		Visible     = true,
+		WallCheck   = true,
+		ForceField  = false,
+		SelfKnocked = false,
+		Knife       = true,
+	},
+	ClickCooldown = 0,
+	FOVUnit = "Percent",
+	FOVScale = 1,
+}
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local VIM = game:GetService("VirtualInputManager")
+
+local LP = Players.LocalPlayer
+local Cam = workspace.CurrentCamera
+local Mouse = LP:GetMouse()
+
+if shared.__vest_tb then
+	for _, c in ipairs(shared.__vest_tb) do pcall(function() c:Disconnect() end) end
+end
+shared.__vest_tb = {}
+local CONNS = shared.__vest_tb
+
+local old = workspace:FindFirstChild("vest_trigger_hitboxes")
+if old then old:Destroy() end
+
+if not (shared.vest and shared.vest.TriggerBot) then
+	warn("[vest] shared.vest config missing - run the config first")
+	return
+end
+
+local CFG = shared.vest
+local TB  = CFG.TriggerBot
+local KEY = Enum.KeyCode[(CFG.KeyBinds and CFG.KeyBinds["Trigger Bot"]) or "B"]
+
+local CHECKS_SRC = CFG.Checks or {}
+local function check(key)
+	local v = CHECKS_SRC[key]
+	if v ~= nil then return v == true end
+	return LOCAL.CheckDefaults[key] == true
+end
+local CHECKS = {
+	Knocked     = check("Knocked"),
+	Reloading   = check("Reloading"),
+	Visible     = check("Visible"),
+	WallCheck   = check("WallCheck"),
+	ForceField  = check("ForceField"),
+	SelfKnocked = check("SelfKnocked"),
+	Knife       = check("Knife"),
+}
+local OFF_SCREEN = (CFG.Targeting and CFG.Targeting["Off Screen Targeting"]) == true
+
+local folder = Instance.new("Folder")
+folder.Name = "vest_trigger_hitboxes"
+folder.Parent = workspace
+
+local boxOwner, boxLimb = {}, {}
+
+local nativeDown = mouse1down or mouse1press
+local nativeUp   = mouse1up   or mouse1release
+
+local function click(press)
+	if press then
+		if nativeDown then nativeDown() else VIM:SendMouseButtonEvent(Mouse.X, Mouse.Y, 0, true, game, 1) end
+	else
+		if nativeUp then nativeUp() else VIM:SendMouseButtonEvent(Mouse.X, Mouse.Y, 0, false, game, 1) end
+	end
+end
+
+local function tapShot()
+	click(true)
+	task.delay(0.01, function() click(false) end)
+end
+
+local down, toggled = {}, false
+table.insert(CONNS, UIS.InputBegan:Connect(function(i)
+	if i.KeyCode then down[i.KeyCode] = true end
+	if i.KeyCode == KEY and TB.Method == "Toggle" then toggled = not toggled end
+end))
+table.insert(CONNS, UIS.InputEnded:Connect(function(i)
+	if i.KeyCode then down[i.KeyCode] = nil end
+end))
+
+local function knocked(char)
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if not hum or hum.Health <= 0 then return true end
+	if hum.PlatformStand then return true end
+	if char:GetAttribute("Knocked") == true then return true end
+	return char:FindFirstChild("Knocked") ~= nil
+end
+
+local function reloading(char)
+	local tool = char:FindFirstChildOfClass("Tool")
+	if not tool then return false end
+	if tool:GetAttribute("Reloading") == true then return true end
+	if char:GetAttribute("Reloading") == true then return true end
+	local v = tool:FindFirstChild("Reloading")
+	return (v and v:IsA("BoolValue") and v.Value) or false
+end
+
+local function weaponAllowed(char)
+	local tool = char:FindFirstChildOfClass("Tool")
+	if not tool then return false end
+	if CHECKS.Knife and tool.Name:lower():find("knife") then return true end
+	local sel = TB["Selected Weapons"]
+	if not sel or not sel.Enabled then return true end
+	local tagged = "[" .. tool.Name .. "]"
+	for _, w in ipairs(sel.Weapons) do
+		if w == tagged then return true end
+	end
+	return false
+end
+
+local function limbOK(name)
+	local want = TB.HitPart
+	if want == nil or want == "ClosestPart" then return true end
+	if want == "Head" then return name == "Head" end
+	if want == "HumanoidRootPart" or want == "HuamnoidRootPart" then return name == "HumanoidRootPart" end
+	return true
+end
+
+local function isLimb(part)
+	return part:IsA("BasePart")
+		and not part:GetAttribute("vest_hb")
+		and not part:FindFirstAncestorOfClass("Tool")
+		and not part:FindFirstAncestorOfClass("Accessory")
+end
+
+local function resolvePart(char)
+	local want = TB.HitPart
+	if want == "Head" then return char:FindFirstChild("Head") end
+	if want == "HumanoidRootPart" or want == "HuamnoidRootPart" then return char:FindFirstChild("HumanoidRootPart") end
+	local best, bestD
+	local origin = Cam.CFrame.Position
+	for _, p in ipairs(char:GetDescendants()) do
+		if isLimb(p) then
+			local d = (p.Position - origin).Magnitude
+			if not bestD or d < bestD then best, bestD = p, d end
+		end
+	end
+	return best
+end
+
+local function fovUnit()
+	if LOCAL.FOVUnit == "Pixels" then return LOCAL.FOVScale end
+	return (math.min(Cam.ViewportSize.X, Cam.ViewportSize.Y) / 100) * LOCAL.FOVScale
+end
+
+local function inFov(screen, mouse, fov, unit)
+	return math.abs(screen.X - mouse.X) <= fov.X * unit
+		and math.abs(screen.Y - mouse.Y) <= fov.Y * unit
+end
+
+local rp = RaycastParams.new()
+rp.FilterType = Enum.RaycastFilterType.Exclude
+rp.IgnoreWater = true
+
+local function canSee(selfChar, targetChar, point)
+	rp.FilterDescendantsInstances = { selfChar, folder, LP.Character }
+	local origin = Cam.CFrame.Position
+	local res = workspace:Raycast(origin, point - origin, rp)
+	return res == nil or res.Instance:IsDescendantOf(targetChar)
+end
+
+local State = { LastShot = 0 }
+
+local function pickTarget(selfChar, maxDist, fov, unit)
+	local origin = Cam.CFrame.Position
+	local mouse = UIS:GetMouseLocation()
+	local bestPlr, bestDist
+
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LP then
+			local pchar = plr.Character
+			local phum = pchar and pchar:FindFirstChildOfClass("Humanoid")
+			local root = pchar and (pchar.PrimaryPart or pchar:FindFirstChild("HumanoidRootPart"))
+			if pchar and phum and phum.Health > 0 and root
+				and not (CHECKS.Knocked and knocked(pchar))
+				and not (CHECKS.ForceField and pchar:FindFirstChildOfClass("ForceField"))
+				and weaponAllowed(pchar)
+			then
+				local part = resolvePart(pchar)
+				if part and limbOK(part.Name) then
+					local d = (root.Position - origin).Magnitude
+					if d <= maxDist then
+						local pos, onScreen = Cam:WorldToViewportPoint(part.Position)
+						if pos.Z > 0
+							and (not CHECKS.Visible or onScreen or OFF_SCREEN)
+							and inFov(pos, mouse, fov, unit)
+							and (not CHECKS.WallCheck or canSee(selfChar, pchar, part.Position))
+							and (not bestDist or d < bestDist)
+						then
+							bestPlr, bestDist = plr, d
+						end
+					end
+				end
+			end
+		end
+	end
+	return bestPlr
+end
+
+table.insert(CONNS, RunService.RenderStepped:Connect(function()
+	Cam = workspace.CurrentCamera or Cam
+
+	if not TB.Enabled then return end
+
+	local char = LP.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not char or not hum or hum.Health <= 0 then return end
+
+	local active
+	if TB.Method == "Always" then
+		active = true
+	elseif TB.Method == "Toggle" then
+		active = toggled
+	else
+		active = down[KEY] == true
+	end
+	if not active then return end
+
+	if CHECKS.SelfKnocked and knocked(char) then return end
+	if CHECKS.Reloading and reloading(char) then return end
+	if UIS:GetFocusedTextBox() then return end
+
+	local tool = char:FindFirstChildOfClass("Tool")
+	if not tool then return end
+
+	local now = os.clock()
+	if now - State.LastShot < LOCAL.ClickCooldown then return end
+
+	local dist = TB["Distance Check"]
+	local maxDist = (dist and dist.Enabled) and (tonumber(dist["Max Distance"]) or math.huge) or math.huge
+	local fov = TB.FOV or { X = 100, Y = 100 }
+
+	local target = pickTarget(char, maxDist, fov, fovUnit())
+	if not target then return end
+
+	State.LastShot = now
+
+	local d = TB.Delay or {}
+	local s = tonumber(d.Start) or 0.02
+	local e = tonumber(d.End) or s
+	if e < s then e = s end
+
+	task.delay(s + math.random() * (e - s), tapShot)
+end))
+
+Mouse.TargetFilter = LP.Character
+table.insert(CONNS, LP.CharacterAdded:Connect(function(c)
+	Mouse.TargetFilter = c
+end))
+
+local ESPLOCAL = {
+	Enabled = true,
+	WallDim = true,
+	MaxDistance = 900,
+	ToggleKey = Enum.KeyCode[(CFG.KeyBinds and CFG.KeyBinds["Visuals"]) or "T"],
+}
+
+if not Drawing then
+	warn("[vest] Drawing API unavailable, ESP disabled")
+end
+
+if shared.__vest_drawings then
+	for _, d in ipairs(shared.__vest_drawings) do pcall(function() d:Remove() end) end
+end
+shared.__vest_drawings = {}
+local DRAWINGS = shared.__vest_drawings
+
+local ESP = { Objects = {}, Target = nil }
+ESP.Enabled = ESPLOCAL.Enabled
+
+local function visualCfg()
+	return shared.vest and shared.vest.Visual
+end
+
+local function newObj(class, props)
+	local ok, obj = pcall(function() return Drawing.new(class) end)
+	if not ok or not obj then return nil end
+	for k, val in pairs(props or {}) do
+		pcall(function() obj[k] = val end)
+	end
+	obj.Visible = false
+	table.insert(DRAWINGS, obj)
+	return obj
+end
+
+local function destroyObj(plr)
+	local o = ESP.Objects[plr]
+	if not o then return end
+	for _, d in pairs(o) do pcall(function() d:Remove() end) end
+	ESP.Objects[plr] = nil
+end
+
+local function getObj(plr)
+	local o = ESP.Objects[plr]
+	if o then return o end
+	local v = visualCfg() or {}
+	local cfg = v.Names or {}
+	o = {
+		name = newObj("Text", {
+			Center = true,
+			Outline = true,
+			OutlineColor = Color3.new(0, 0, 0),
+			Font = tonumber(cfg.Font) or 3,
+			Size = tonumber(cfg["Font Size"]) or 13,
+			Color = (cfg.Colors and cfg.Colors.Color) or Color3.new(1, 1, 1),
+		}),
+		healthBg = newObj("Square", { Thickness = 1, Filled = true }),
+		health = newObj("Square", { Thickness = 1, Filled = true }),
+		armorBg = newObj("Square", { Thickness = 1, Filled = true }),
+		armor = newObj("Square", { Thickness = 1, Filled = true }),
+	}
+	ESP.Objects[plr] = o
+	return o
+end
+
+local espParams = RaycastParams.new()
+espParams.FilterType = Enum.RaycastFilterType.Exclude
+espParams.IgnoreWater = true
+
+local function espClear(own, char, point)
+	local origin = Cam.CFrame.Position
+	espParams.FilterDescendantsInstances = { own, folder, LP.Character }
+	local res = workspace:Raycast(origin, point - origin, espParams)
+	return res == nil or res.Instance:IsDescendantOf(char)
+end
+
+local function espTarget()
+	local mode = (CFG.Targeting and CFG.Targeting["Enabled"]) or "Manual"
+
+	if mode == "Automatic" then
+		local bestD, bestPlr
+		local mouse = UIS:GetMouseLocation()
+		for _, other in ipairs(Players:GetPlayers()) do
+			if other ~= LP then
+				local c = other.Character
+				local h = c and c:FindFirstChildOfClass("Humanoid")
+				local head = c and c:FindFirstChild("Head")
+				if head and h and h.Health > 0 then
+					local pos, on = Cam:WorldToViewportPoint(head.Position)
+					if pos.Z > 0 and (on or OFF_SCREEN) then
+						local d = (Vector2.new(pos.X, pos.Y) - mouse).Magnitude
+						if not bestD or d < bestD then bestD, bestPlr = d, other end
+					end
+				end
+			end
+		end
+		return bestPlr
+	end
+
+	if okAim and aimApi then
+		local ok, st = pcall(function() return aimApi:Status() end)
+		if ok and st and st.Target then
+			local found = Players:FindFirstChild(st.Target)
+			if found then return found end
+		end
+	end
+
+	local t = Mouse.Target
+	if t then
+		if boxOwner[t] then return boxOwner[t] end
+		local model = t:FindFirstAncestorOfClass("Model")
+		local p = model and Players:GetPlayerFromCharacter(model)
+		if p then return p end
+	end
+	return nil
+end
+
+table.insert(CONNS, UIS.InputBegan:Connect(function(i, processed)
+	if processed then return end
+	if i.KeyCode == ESPLOCAL.ToggleKey then
+		ESP.Enabled = not ESP.Enabled
+	end
+end))
+
+table.insert(CONNS, Players.PlayerRemoving:Connect(destroyObj))
+
+table.insert(CONNS, RunService.RenderStepped:Connect(function()
+	Cam = workspace.CurrentCamera or Cam
+	if not Drawing or not Cam then return end
+
+	local vcfg = visualCfg()
+	local ncfg = vcfg and vcfg.Names
+	if not (ESP.Enabled and vcfg) then
+		for _, o in pairs(ESP.Objects) do
+			for _, d in pairs(o) do pcall(function() d.Visible = false end) end
+		end
+		return
+	end
+
+	local baseColor = (ncfg and ncfg.Colors and ncfg.Colors.Color) or Color3.new(1, 1, 1)
+	local targetColor = (ncfg and ncfg.Colors and ncfg.Colors["Target Color"]) or Color3.new(0, 1, 0)
+	local font = tonumber(ncfg and ncfg.Font) or 3
+	local fontSize = tonumber(ncfg and ncfg["Font Size"]) or 13
+	local onTop = string.lower((ncfg and ncfg.Position) or "top") ~= "bottom"
+	local showName = ncfg and ncfg.Enabled == true
+
+	local hcfg = vcfg["Health Bar"] or {}
+	local acfg = vcfg["Armor Bar"] or {}
+	local healthOn = hcfg.Enabled ~= false
+	local armorOn = acfg.Enabled ~= false
+	local anchorBottom = string.lower(hcfg.Position or "bottom") == "bottom"
+	local barW = math.clamp(tonumber(hcfg.Width) or 2, 1, 6)
+	local armorW = math.clamp(tonumber(acfg.Width) or barW, 1, 6)
+	local barBg = hcfg["Background Color"] or Color3.fromRGB(15, 15, 15)
+	local armorBgColor = acfg["Background Color"] or Color3.fromRGB(15, 15, 15)
+	local healthFull = (hcfg.Colors and hcfg.Colors.Full) or Color3.fromRGB(0, 255, 90)
+	local healthEmpty = (hcfg.Colors and hcfg.Colors.Empty) or Color3.fromRGB(255, 45, 45)
+	local armorColor = acfg.Color or Color3.fromRGB(90, 170, 255)
+
+	local own = LP.Character
+	local target = espTarget()
+	ESP.Target = target
+
+	local seen = {}
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LP then
+			seen[plr] = true
+
+			local char = plr.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			local head = char and char:FindFirstChild("Head")
+			local root = char and (char.PrimaryPart or char:FindFirstChild("HumanoidRootPart"))
+			local obj = getObj(plr)
+
+			local draw = char ~= nil and hum ~= nil and head ~= nil and root ~= nil and hum.Health > 0
+			local dist = draw and (root.Position - Cam.CFrame.Position).Magnitude or math.huge
+			if draw and dist > ESPLOCAL.MaxDistance then draw = false end
+
+			local height, width, midX, left, topY, color
+
+			if draw then
+				local topPoint = head.Position + Vector3.new(0, head.Size.Y * 0.5 + 0.4, 0)
+				local bottomPoint = root.Position - Vector3.new(0, 3, 0)
+				local topScreen, topOn = Cam:WorldToViewportPoint(topPoint)
+				local bottomScreen, bottomOn = Cam:WorldToViewportPoint(bottomPoint)
+
+				if not (topOn and bottomOn and topScreen.Z > 0 and bottomScreen.Z > 0) then
+					draw = false
+				else
+					height = math.abs(bottomScreen.Y - topScreen.Y)
+					width = math.max(height * 0.45, 4)
+					midX = (topScreen.X + bottomScreen.X) * 0.5
+					left = midX - width * 0.5
+					topY = math.min(topScreen.Y, bottomScreen.Y)
+
+					color = (plr == target) and targetColor or baseColor
+					if knocked(char) then
+						color = color:Lerp(Color3.new(0.55, 0.55, 0.55), 0.6)
+					end
+					if not espClear(own, char, root.Position) then
+						if ESPLOCAL.WallDim then
+							color = color:Lerp(Color3.new(0, 0, 0), 0.55)
+						else
+							draw = false
+						end
+					end
+				end
+			end
+
+			if not draw then
+				for _, d in pairs(obj) do pcall(function() d.Visible = false end) end
+			else
+				local yTop, yBottom = topY, topY + height
+				local xHealth = left - barW - 3
+				local xArmor = xHealth - armorW - 2
+
+				local hpFrac = (hum.MaxHealth > 0 and math.clamp(hum.Health / hum.MaxHealth, 0, 1)) or 0
+				local fillH = height * hpFrac
+				local hColor = healthEmpty:Lerp(healthFull, hpFrac)
+				if plr == target then hColor = hColor:Lerp(targetColor, 0.35) end
+
+				obj.healthBg.Visible = healthOn
+				if healthOn then
+					obj.healthBg.Color = barBg
+					obj.healthBg.Position = Vector2.new(xHealth, yTop)
+					obj.healthBg.Size = Vector2.new(barW, height)
+				end
+
+				obj.health.Visible = healthOn and fillH > 0.5
+				if obj.health.Visible then
+					obj.health.Color = hColor
+					obj.health.Position = Vector2.new(xHealth, anchorBottom and (yBottom - fillH) or yTop)
+					obj.health.Size = Vector2.new(barW, fillH)
+				end
+
+				local armorRaw = char:GetAttribute("Armor")
+				if type(armorRaw) ~= "number" then
+					local av = char:FindFirstChild("Armor")
+					if av and av:IsA("ValueBase") then armorRaw = av.Value end
+				end
+				local armorMax = char:GetAttribute("MaxArmor")
+				if type(armorMax) ~= "number" or armorMax <= 0 then armorMax = 100 end
+				local armorFrac = (type(armorRaw) == "number" and armorRaw > 0)
+					and math.clamp(armorRaw / armorMax, 0, 1) or 0
+				local showArmor = armorOn and armorFrac > 0
+				local aFill = height * armorFrac
+
+				obj.armorBg.Visible = showArmor
+				obj.armor.Visible = showArmor
+				if showArmor then
+					obj.armorBg.Color = armorBgColor
+					obj.armorBg.Position = Vector2.new(xArmor, yTop)
+					obj.armorBg.Size = Vector2.new(armorW, height)
+
+					obj.armor.Color = armorColor
+					obj.armor.Position = Vector2.new(xArmor, anchorBottom and (yBottom - aFill) or yTop)
+					obj.armor.Size = Vector2.new(armorW, aFill)
+				end
+
+				local scale = math.clamp(140 / math.max(dist, 25), 0.5, 2)
+				local size = math.max(math.floor(fontSize * scale + 0.5), 8)
+				obj.name.Visible = showName
+				if showName then
+					obj.name.Text = (ncfg.Type == "Name") and plr.Name or plr.DisplayName
+					obj.name.Font = font
+					obj.name.Size = size
+					obj.name.Color = color
+					obj.name.Position = onTop
+						and Vector2.new(midX, topY - size - 6)
+						or Vector2.new(midX, topY + height + 6)
+				end
+			end
+		end
+	end
+
+	for plr in pairs(ESP.Objects) do
+		if not seen[plr] then destroyObj(plr) end
+	end
+end))
